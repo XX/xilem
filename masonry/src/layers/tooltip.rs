@@ -7,9 +7,9 @@ use accesskit::{Node, Role};
 use tracing::{Span, trace_span};
 
 use crate::core::{
-    AccessCtx, AccessEvent, ChildrenIds, EventCtx, Layer, LayoutCtx, MeasureCtx, NewWidget,
-    NoAction, PaintCtx, PointerEvent, PropertiesMut, PropertiesRef, RegisterCtx, TextEvent, Update,
-    UpdateCtx, Widget, WidgetId, WidgetMut, WidgetPod,
+    AccessCtx, AccessEvent, ChildrenIds, EventCtx, Handled, Layer, LayoutCtx, MeasureCtx,
+    NewWidget, NoAction, PaintCtx, PointerEvent, PropertiesMut, PropertiesRef, RegisterCtx,
+    TextEvent, Update, UpdateCtx, Widget, WidgetId, WidgetMut, WidgetPod,
 };
 use crate::imaging::Painter;
 use crate::kurbo::{Axis, Size};
@@ -162,7 +162,7 @@ impl Layer for Tooltip {
         ctx: &mut EventCtx<'_>,
         _props: &mut PropertiesMut<'_>,
         event: &PointerEvent,
-    ) {
+    ) -> Handled {
         let remove_tooltip = matches!(
             event,
             PointerEvent::Down(_)
@@ -174,5 +174,9 @@ impl Layer for Tooltip {
         if remove_tooltip {
             ctx.remove_layer(ctx.widget_id());
         }
+
+        // A tooltip dismisses itself, but the event that dismissed it is still the user
+        // interacting with whatever is underneath.
+        Handled::No
     }
 }

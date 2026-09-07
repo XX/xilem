@@ -607,7 +607,7 @@ impl<W: Widget> TestHarness<W> {
     // --- MARK: EVENT HELPERS
 
     /// Move an internal mouse state, and send a [`Move`](PointerEvent::Move) event to the window.
-    pub fn mouse_move(&mut self, pos: impl Into<Point>) {
+    pub fn mouse_move(&mut self, pos: impl Into<Point>) -> Handled {
         // FIXME - Account for scaling
         let Point { x, y } = pos.into();
         let pos = PhysicalPosition { x, y };
@@ -620,11 +620,11 @@ impl<W: Widget> TestHarness<W> {
             current: self.mouse_state.clone(),
             coalesced: vec![],
             predicted: vec![],
-        }));
+        }))
     }
 
     /// Sends a [`Down`](PointerEvent::Down) event to the window.
-    pub fn mouse_button_press(&mut self, button: Option<PointerButton>) {
+    pub fn mouse_button_press(&mut self, button: Option<PointerButton>) -> Handled {
         if let Some(button) = button {
             self.mouse_state.buttons.insert(button);
         }
@@ -632,11 +632,11 @@ impl<W: Widget> TestHarness<W> {
             pointer: PRIMARY_MOUSE,
             button,
             state: self.mouse_state.clone(),
-        }));
+        }))
     }
 
     /// Sends an [`Up`](PointerEvent::Up) event to the window.
-    pub fn mouse_button_release(&mut self, button: Option<PointerButton>) {
+    pub fn mouse_button_release(&mut self, button: Option<PointerButton>) -> Handled {
         if let Some(button) = button {
             self.mouse_state.buttons.remove(button);
         }
@@ -644,7 +644,7 @@ impl<W: Widget> TestHarness<W> {
             pointer: PRIMARY_MOUSE,
             button,
             state: self.mouse_state.clone(),
-        }));
+        }))
     }
 
     /// Sends a [`Scroll`](PointerEvent::Scroll) event to the window.

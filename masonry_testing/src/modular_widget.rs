@@ -11,9 +11,9 @@ use std::any::TypeId;
 use masonry_core::accesskit::{Node, Role};
 use masonry_core::core::{
     AccessCtx, AccessEvent, ActionCtx, ChildrenIds, ComposeCtx, CursorIcon, ErasedAction, EventCtx,
-    Layer, LayoutCtx, MeasureCtx, NewWidget, NoAction, PaintCtx, PointerEvent, PropertiesMut,
-    PropertiesRef, QueryCtx, RegisterCtx, TextEvent, Update, UpdateCtx, Widget, WidgetId,
-    WidgetPod, WidgetRef, find_widget_under_pointer, pre_paint,
+    Handled, Layer, LayoutCtx, MeasureCtx, NewWidget, NoAction, PaintCtx, PointerEvent,
+    PropertiesMut, PropertiesRef, QueryCtx, RegisterCtx, TextEvent, Update, UpdateCtx, Widget,
+    WidgetId, WidgetPod, WidgetRef, find_widget_under_pointer, pre_paint,
 };
 use masonry_core::imaging::Painter;
 use masonry_core::kurbo::{Axis, Point, Size};
@@ -22,6 +22,8 @@ use tracing::trace_span;
 
 pub(crate) type PointerEventFn<S> =
     dyn FnMut(&mut S, &mut EventCtx<'_>, &mut PropertiesMut<'_>, &PointerEvent);
+pub(crate) type CapturePointerEventFn<S> =
+    dyn FnMut(&mut S, &mut EventCtx<'_>, &mut PropertiesMut<'_>, &PointerEvent) -> Handled;
 pub(crate) type TextEventFn<S> =
     dyn FnMut(&mut S, &mut EventCtx<'_>, &mut PropertiesMut<'_>, &TextEvent);
 pub(crate) type AccessEventFn<S> =
@@ -61,6 +63,7 @@ pub struct ModularWidget<S> {
     accepts_focus: bool,
     accepts_text_input: bool,
     on_pointer_event: Option<Box<PointerEventFn<S>>>,
+    capture_pointer_event: Option<Box<CapturePointerEventFn<S>>>,
     on_text_event: Option<Box<TextEventFn<S>>>,
     on_access_event: Option<Box<AccessEventFn<S>>>,
     on_anim_frame: Option<Box<AnimFrameFn<S>>>,
@@ -93,6 +96,7 @@ impl<S> ModularWidget<S> {
             accepts_focus: false,
             accepts_text_input: false,
             on_pointer_event: None,
+            capture_pointer_event: None,
             on_text_event: None,
             on_access_event: None,
             on_anim_frame: None,
@@ -235,6 +239,19 @@ impl<S> ModularWidget<S> {
         f: impl FnMut(&mut S, &mut EventCtx<'_>, &mut PropertiesMut<'_>, &PointerEvent) + 'static,
     ) -> Self {
         self.on_pointer_event = Some(Box::new(f));
+        self
+    }
+
+    /// See [`Layer::capture_pointer_event`]
+    ///
+    /// Setting this callback also makes [`Widget::as_layer`] return `Some`, so a
+    /// `ModularWidget` with it set can be used as a layer root.
+    pub fn capture_pointer_event_fn(
+        mut self,
+        f: impl FnMut(&mut S, &mut EventCtx<'_>, &mut PropertiesMut<'_>, &PointerEvent) -> Handled
+        + 'static,
+    ) -> Self {
+        self.capture_pointer_event = Some(Box::new(f));
         self
     }
 
@@ -551,7 +568,11 @@ impl<S: 'static> Widget for ModularWidget<S> {
     }
 
     fn as_layer(&mut self) -> Option<&mut dyn Layer> {
-        None
+        if self.capture_pointer_event.is_some() {
+            Some(self)
+        } else {
+            None
+        }
     }
 
     fn accepts_pointer_interaction(&self) -> bool {
@@ -603,5 +624,20 @@ impl<S: 'static> Widget for ModularWidget<S> {
         Self: Sized,
     {
         NewWidget::new(self)
+    }
+}
+
+impl<S: 'static> Layer for ModularWidget<S> {
+    fn capture_pointer_event(
+        &mut self,
+        ctx: &mut EventCtx<'_>,
+        props: &mut PropertiesMut<'_>,
+        event: &PointerEvent,
+    ) -> Handled {
+        if let Some(f) = self.capture_pointer_event.as_mut() {
+            f(&mut self.state, ctx, props, event)
+        } else {
+            Handled::No
+        }
     }
 }
