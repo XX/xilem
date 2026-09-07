@@ -185,6 +185,10 @@ pub(crate) fn run_on_pointer_event_pass(root: &mut RenderRoot, event: &PointerEv
         return Handled::Yes;
     }
 
+    // Whether a layer asked for this event to stay out of the widget tree. Every layer is
+    // called either way: suppression hides the event from the tree, not from the layers.
+    let mut suppressed = false;
+
     let root_node = root.widget_arena.get_node_mut(root.root_id());
     let layer_ids = root_node.item.widget.children_ids();
     for layer_id in layer_ids {
@@ -213,44 +217,61 @@ pub(crate) fn run_on_pointer_event_pass(root: &mut RenderRoot, event: &PointerEv
                 class_set: &layer_root.item.class_set,
             };
 
-            layer.capture_pointer_event(&mut ctx, &mut props, event);
+            suppressed |= layer
+                .capture_pointer_event(&mut ctx, &mut props, event)
+                .is_handled();
         }
+
+        // The hook can request layout, paint or an animation frame like any other event
+        // handler, so its flags have to reach the root the same way the event pass's do.
+        merge_state_up(&mut root.widget_arena, layer_id);
     }
 
-    let target_widget_id = get_pointer_target(root, event_pos);
+    // Pointer capture is stronger than a layer: a widget holding the pointer is always told
+    // how its gesture ends, so a captured event is never withheld.
+    let suppressed = suppressed && root.global_state.pointer_capture_target.is_none();
 
-    if matches!(event, PointerEvent::Down { .. })
-        && let Some(target_widget_id) = target_widget_id
-    {
-        // The next tab event will assign focus around this widget.
-        root.global_state.focus_anchor = Some(target_widget_id);
+    let handled = if suppressed {
+        if !is_very_frequent(event) {
+            trace!("Event suppressed by a layer");
+        }
+        Handled::Yes
+    } else {
+        let target_widget_id = get_pointer_target(root, event_pos);
 
-        // If we click outside of the focused widget, we clear the focus.
-        if let Some(focused_widget) = root.global_state.focused_widget {
-            // Focused_widget isn't ancestor of target_widget_id
-            if !root
-                .widget_arena
-                .nodes
-                .get_id_path(target_widget_id)
-                .contains(&focused_widget.to_raw())
-            {
-                root.global_state.next_focused_widget = None;
+        if matches!(event, PointerEvent::Down { .. })
+            && let Some(target_widget_id) = target_widget_id
+        {
+            // The next tab event will assign focus around this widget.
+            root.global_state.focus_anchor = Some(target_widget_id);
+
+            // If we click outside of the focused widget, we clear the focus.
+            if let Some(focused_widget) = root.global_state.focused_widget {
+                // Focused_widget isn't ancestor of target_widget_id
+                if !root
+                    .widget_arena
+                    .nodes
+                    .get_id_path(target_widget_id)
+                    .contains(&focused_widget.to_raw())
+                {
+                    root.global_state.next_focused_widget = None;
+                }
             }
         }
-    }
 
-    let skip_if_disabled = !matches!(event, PointerEvent::Cancel { .. });
-    let handled = run_event_pass(
-        root,
-        target_widget_id,
-        event,
-        skip_if_disabled,
-        matches!(event, PointerEvent::Down { .. }),
-        |widget, ctx, props, event| {
-            widget.on_pointer_event(ctx, props, event);
-        },
-        !is_very_frequent(event),
-    );
+        let skip_if_disabled = !matches!(event, PointerEvent::Cancel { .. });
+        run_event_pass(
+            root,
+            target_widget_id,
+            event,
+            skip_if_disabled,
+            matches!(event, PointerEvent::Down { .. }),
+            |widget, ctx, props, event| {
+                widget.on_pointer_event(ctx, props, event);
+            },
+            !is_very_frequent(event),
+        )
+    };
 
     if matches!(event, PointerEvent::Up { .. } | PointerEvent::Cancel(..)) {
         // Automatically release the pointer on pointer up or leave. If a widget holds the capture,

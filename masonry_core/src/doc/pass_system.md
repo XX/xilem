@@ -40,6 +40,10 @@ The widget's event handling method (`on_pointer_event`, `on_text_event`, or `on_
 Then, the same method is called for each of the widget's parents, up to the root.
 This behavior is known in browsers as event bubbling.
 
+Pointer events go through one step before that: every layer root's `Layer::capture_pointer_event` is called, before the target is selected and whether or not the pointer is over that layer.
+A layer root returning `Handled::Yes` keeps the event out of the tree entirely, so no widget's `on_pointer_event` is called for it.
+Pointer capture takes precedence: while a widget holds the pointer, the event reaches that widget whatever the layers return.
+
 ### Animation pass
 
 The **update_anim** pass runs an animation frame, which occurs at set intervals if the widget tree includes animated widgets.
